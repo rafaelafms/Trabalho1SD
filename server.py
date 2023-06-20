@@ -1,18 +1,26 @@
+from __future__ import annotations
 
+from typing import Tuple, TypeAlias
 
-import rpyc # typing: ignore
+import rpyc # type: ignore
+
+from interface import UserId, Topic, Content, FnNotify
 
 IndexNext: TypeAlias = int
 SubsState: TypeAlias = list[Tuple[Topic, IndexNext, FnNotify]]
 
 Subscribers: TypeAlias = dict[UserId, SubsState]
 
+from typing import Any
+def magia(*a: Any) -> Any:
+    assert False, "magia should not be called"
+
 class ME:
     all_topics: list[Topic]
     all_contents: list[Content]
     all_subs: Subscribers
 
-    def login() -> bool:
+    def login(self) -> bool:
         pass
 
     def create_topic(self, topic: Topic) -> None:
@@ -34,19 +42,19 @@ class ME:
 
     def subscribe(self, id: UserId, topic: Topic, callback: FnNotify) -> bool:
         if topic not in self.all_topics:
-            return None # TODO: eh True ou False
+            return bool(magia()) # TODO: eh True ou False
         else:
             assert id in self.all_subs.keys()
             subs_state: SubsState = self.all_subs[id]
             next_index: int = len(self.all_topics)
             asdf = (topic, next_index, callback)
-            if magia(topic in subs_state):
+            if magia(topic, 'in', subs_state):
                 index: int = magia(topic, subs_state)
                 subs_state[index] = asdf
             else:
                 subs_state.append(asdf)
-        pass
+            return True
 
-    def unsubscribe() -> bool:
+    def unsubscribe(self) -> bool:
         pass
 
