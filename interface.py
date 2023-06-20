@@ -27,7 +27,7 @@ class BrokerService(rpyc.Service): # type: ignore
 
     # Handshake
 
-    def exposed_login(self, id: UserId) -> Bool:
+    def exposed_login(self, id: UserId, callback: FnNotify) -> bool:
         assert False, "TO BE IMPLEMENTED"
 
     # Query operations
@@ -37,13 +37,22 @@ class BrokerService(rpyc.Service): # type: ignore
 
     # Publisher operations
 
-    def exposed_publish(self, id: UserId, topic: Topic, data: str) -> Bool:
+    def exposed_publish(self, id: UserId, topic: Topic, data: str) -> bool:
+        """
+        Função responde se Anúncio conseguiu ser publicado
+        """
         assert False, "TO BE IMPLEMENTED"
 
     # Subscriber operations
 
-    def exposed_subscribe_to(self, id: UserId, topic: Topic, callback: FnNotify) -> Bool:
+    def exposed_subscribe_to(self, id: UserId, topic: Topic) -> bool:
+        """
+        Função responde se `id` está inscrito no `topic`
+        """
         assert False, "TO BE IMPLEMENTED"
 
-    def exposed_unsubscribe_to(self, id: UserId, topic: Topic) -> Bool:
+    def exposed_unsubscribe_to(self, id: UserId, topic: Topic) -> bool:
+        """
+        Função responde se `id` não está inscrito no `topic`
+        """
         assert False, "TO BE IMPLEMENTED"
