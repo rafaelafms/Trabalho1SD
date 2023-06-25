@@ -13,8 +13,17 @@ from interface import UserId, Topic, Content, FnNotify, BrokerService
 
 PORT = 5000
 
+GLOBAL_LOG: bool = True
+
 def log(s: str) -> None:
-    print(s, file=sys.stderr)
+    if GLOBAL_LOG:
+        print(s, file=sys.stderr)
+
+def log_contents(contents: list[Content]) -> None:
+    if not GLOBAL_LOG:
+        return
+    for i, content in enumerate(contents):
+        log(f"#{i}: {content}")
 
 IndexNext: TypeAlias = int
 
@@ -82,7 +91,9 @@ class ME(BrokerService):
         return self.all_topics
 
     def exposed_publish(self, author: UserId, topic: Topic, data: str) -> bool:
+        log(f"publish: '{author}' '{topic}' '{data}'")
         if topic not in self.all_topics:
+            log(f"> Topic not valid '{topic}' by '{author}'")
             return False
         else:
             content: Content = Content(
@@ -91,6 +102,8 @@ class ME(BrokerService):
                 data = data,
             )
             self.all_contents.append(content)
+            log(f"> Publishing {content}")
+            log_contents(self.all_contents)
             self.notify_all(content.topic)
             # self.notify_queue.append(content.topic)
             return True
@@ -98,23 +111,25 @@ class ME(BrokerService):
     def exposed_subscribe_to(self, id: UserId, topic: Topic) -> bool:
         log(f"subscribe_to: '{id}' '{topic}'")
         if topic not in self.all_topics:
-            log(f"subscribe_to: return False")
+            log(f"> subscribe_to: return False")
             return False
         else:
             assert id in self.all_subs.keys()
             subs_state: SubsState = self.all_subs[id]
             next_index: int = len(self.all_contents)
-            log(f"subscribe_to: before {subs_state.subscribed}")
+            log(f"> subscribe_to: before {subs_state.subscribed}")
             subs_state.subscribed[topic] = next_index
-            log(f"subscribe_to: after {subs_state.subscribed}")
+            log(f"> subscribe_to: after {subs_state.subscribed}")
             return True
 
     def exposed_unsubscribe(self, id: UserId, topic: Topic) -> bool:
+        log(f"unsubscribe: '{id}' '{topic}'")
         subscribed =  self.all_subs[id].subscribed
         if topic in subscribed.keys():
+            log(f"> unsubscribing to '{topic}'")
             subscribed.pop(topic)
         else:
-            pass
+            log(f"> unsubscribe invalid")
         return True
 
     def notify_all(self, topic: Topic) -> None:
@@ -133,6 +148,7 @@ class ME(BrokerService):
                 index = subs_state.subscribed[topic]
                 for content in self.all_contents[index:]:
                     if content.topic == topic:
+                        log(f"> append: {content}")
                         list_to_send.append(content)
                 subs_state.callback(list_to_send)
                 subs_state.subscribed[topic] = len(self.all_contents)
