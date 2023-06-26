@@ -127,13 +127,12 @@ from typing import Any
 def magia(*a: Any) -> Any:
     assert False, "Magia should not be called"
 
-@dataclass(kw_only=True, slots=True)
 class ME(BrokerService):
-    all_topics: list[Topic] = field(default_factory=list)
-    all_contents: BufferType[Content] = field(default_factory=Buffer)
-    all_subs: Subscribers = field(default_factory=dict)
-    _conn: rpyc.Connection = None
-    notify_queue: list[Topic] = field(default_factory=list)
+    all_topics: list[Topic] = list()
+    all_contents: BufferType[Content] = Buffer()
+    all_subs: Subscribers = dict()
+    logged_in: dict[rpyc.Connection, UserId] = dict()
+    notify_queue: list[Topic] = list()
 
     def create_topic(self, id: UserId, topic: Topic) -> Topic:
         if topic not in self.all_topics:
@@ -148,38 +147,50 @@ class ME(BrokerService):
     def on_disconnect(self, conn: rpyc.Connection) -> None:
         log('on_disconnect: Someone disconnected')
         log(f"> conn: {self._conn}")
+        assert self._conn == conn
+        if self._conn in ME.logged_in.keys():
+            ME.logged_in.pop(self._conn)
+        else:
+            # Nothing to do
+            pass
 
     def exposed_login(self, id: UserId, callback: FnNotify) -> bool:
         log(f"login: '{id}'")
         log(f"> conn: {self._conn}")
-        if id not in self.all_subs.keys():
-            log(f"> new client: '{id}'")
-            self.all_subs[id] = SubsState(
-                callback = callback
-            )
+        if id in ME.logged_in.values():
+            log(f"> client already connected: '{id}'")
+            return False
         else:
-            user_callback = self.all_subs[id].callback
-            if user_callback is None:
-                log(f"> '{id}' already logged out")
+            ME.logged_in[self._conn] = id
+            if id not in ME.all_subs.keys():
+                log(f"> new client: '{id}'")
+                ME.all_subs[id] = SubsState(
+                    callback = callback
+                )
             else:
-                if ME.test_callback(user_callback):
-                    log(f"> '{id}' is connected")
-                    return False
+                user_callback = ME.all_subs[id].callback
+                if user_callback is None:
+                    log(f"> '{id}' already logged out")
                 else:
-                    log(f"> '{id}' just disconnected")
-            self.all_subs[id].callback = callback
-            for topic in self.all_topics:
-                self.notify_one(self.all_subs[id], topic)
-        return True
+                    if ME.test_callback(user_callback):
+                        log(f"> '{id}' is connected")
+                        return False
+                    else:
+                        log(f"> '{id}' just disconnected")
+                ME.all_subs[id].callback = callback
+                self.notify_conn()
+            return True
 
     def exposed_list_topics(self) -> list[Topic]:
-        return self.all_topics
+        self.notify_conn()
+        return ME.all_topics
 
     def exposed_publish(self, author: UserId, topic: Topic, data: str) -> bool:
         log(f"publish: '{author}' '{topic}' '{data}'")
         log(f"> conn: {self._conn}")
-        if topic not in self.all_topics:
+        if topic not in ME.all_topics:
             log(f"> Topic not valid '{topic}' by '{author}'")
+            self.notify_conn()
             return False
         else:
             content: Content = Content(
@@ -187,45 +198,58 @@ class ME(BrokerService):
                 topic = topic,
                 data = data,
             )
-            self.all_contents.append(content)
+            ME.all_contents.append(content)
             log(f"> Publishing {content}")
-            log_contents(self.all_contents)
-            # self.notify_all(content.topic)
-            self.notify_queue.append(content.topic)
+            log_contents(ME.all_contents)
+            self.notify_conn()
+            # ME.notify_all(content.topic)
+            # ME.notify_one(ME.all_subs[author], content.topic)
+            # self.notify_queue.append(content.topic)
             return True
 
     def exposed_subscribe_to(self, id: UserId, topic: Topic) -> bool:
         log(f"subscribe_to: '{id}' '{topic}'")
         log(f"> conn: {self._conn}")
-        if topic not in self.all_topics:
+        if topic not in ME.all_topics:
             log(f"> subscribe_to: return False")
+            self.notify_conn()
             return False
         else:
-            assert id in self.all_subs.keys()
-            subs_state: SubsState = self.all_subs[id]
-            next_index: int = len(self.all_contents)
+            assert id in ME.all_subs.keys()
+            subs_state: SubsState = ME.all_subs[id]
+            next_index: int = len(ME.all_contents)
             log(f"> subscribe_to: before {subs_state.subscribed}")
             subs_state.subscribed[topic] = next_index
             log(f"> subscribe_to: after {subs_state.subscribed}")
+            self.notify_conn()
             return True
 
     def exposed_unsubscribe_to(self, id: UserId, topic: Topic) -> bool:
         log(f"unsubscribe: '{id}' '{topic}'")
         log(f"> conn: {self._conn}")
-        subscribed =  self.all_subs[id].subscribed
+        subscribed =  ME.all_subs[id].subscribed
         if topic in subscribed.keys():
             log(f"> unsubscribing to '{topic}'")
             subscribed.pop(topic)
         else:
             log(f"> unsubscribe invalid")
+        self.notify_conn()
         return True
 
-    def notify_all(self, topic: Topic) -> None:
+    @staticmethod
+    def notify_all(topic: Topic) -> None:
         log(f"notify all: '{topic}'")
-        for subs_state in self.all_subs.values():
-            self.notify_one(subs_state, topic)
+        for subs_state in ME.all_subs.values():
+            ME.notify_one(subs_state, topic)
 
-    def notify_one(self, subs_state: SubsState, topic: Topic) -> None:
+    def notify_conn(self) -> None:
+        id = ME.logged_in[self._conn]
+        subs_state = ME.all_subs[id]
+        for topic in subs_state.subscribed.keys():
+            ME.notify_one(subs_state, topic)
+
+    @staticmethod
+    def notify_one(subs_state: SubsState, topic: Topic) -> None:
         log(f"notify one: {subs_state.subscribed} '{topic}'")
         if subs_state.callback is None:
             # Nothing to do
@@ -234,7 +258,7 @@ class ME(BrokerService):
             if topic in subs_state.subscribed.keys():
                 list_to_send: list[Content] = []
                 index = subs_state.subscribed[topic]
-                slice = self.all_contents[index:]
+                slice = ME.all_contents[index:]
                 assert isinstance(slice, list)
                 for content in slice:
                     if content.topic == topic:
@@ -242,7 +266,7 @@ class ME(BrokerService):
                         list_to_send.append(content)
                 if len(list_to_send) > 0:
                     if ME.test_callback_with(subs_state.callback, list_to_send):
-                        subs_state.subscribed[topic] = len(self.all_contents)
+                        subs_state.subscribed[topic] = len(ME.all_contents)
                     else:
                         log(f"> someone was disconnected")
                         subs_state.callback = None
@@ -260,32 +284,30 @@ class ME(BrokerService):
             callback(list_send)
             log(f"> test_callback: callback({list_send})")
             ok = True
-        except:
-            log('> test_callback: except')
+        except Exception as e:
+            log(f"> test_callback: except {e}")
         return ok
 
-def notify(server_data: ME) -> None:
+def notify() -> None:
     while True:
-        while len(server_data.notify_queue) > 0:
-            topic: Topic = server_data.notify_queue.pop(0)
+        while len(ME.notify_queue) > 0:
+            topic: Topic = ME.notify_queue.pop(0)
             log(f"thread notify '{topic}'")
-            server_data.notify_all(topic)
+            ME.notify_all(topic)
             log(f"thread notify: is sleeping")
         time.sleep(1)
 
 def main() -> int:
     from rpyc.utils.server import ThreadedServer # type: ignore
-    server_data = ME(
-        all_topics = [
-            'monitoria',
-            'ic',
-            'estagio',
-            'extensao',
-            'hashi',
-        ],
-    )
+    ME.all_topics = [
+        'monitoria',
+        'ic',
+        'estagio',
+        'extensao',
+        'hashi',
+    ]
     srv = ThreadedServer(
-        server_data,
+        ME,
         port = PORT
     )
     server_thread: threading.Thread = \
@@ -295,12 +317,12 @@ def main() -> int:
     notify_thread: threading.Thread = \
         threading.Thread(
             target=notify,
-            args=(server_data,),
+            args=(),
         )
     server_thread.start()
-    notify_thread.start()
+    # notify_thread.start()
     server_thread.join()
-    notify_thread.join()
+    # notify_thread.join()
     return 0
 
 if __name__ == "__main__":

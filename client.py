@@ -76,6 +76,12 @@ def handle_command(
             conn.root.list_topics()
         print(f'=> topics: {topics}',
             file=output)
+    elif parsed.cmd_name == 'refresh':
+        assert len(parsed.args) == 0
+        topics = \
+            conn.root.list_topics()
+        print(f'=> refreshed',
+            file=output)
     elif parsed.cmd_name == 'exit':
         return True
     elif parsed.cmd_name == 'help':
@@ -112,6 +118,11 @@ def main() -> int:
             return 1
         ClientCli.help(outfile)
         while not should_stop:
+            while len(mail) > 0:
+                log(f"len(mail) = {len(mail)}")
+                content: Content = mail.pop(0)
+                print(f"New message: {content}",
+                    file=outfile)
             parsed: Optional[ParsedCommand] = \
                 ClientCli.command(infile, outfile)
             if parsed is None:
@@ -119,11 +130,6 @@ def main() -> int:
                 pass
             else:
                 should_stop = handle_command(id, parsed, conn, outfile)
-            while len(mail) > 0:
-                log(f"len(mail) = {len(mail)}")
-                content: Content = mail.pop(0)
-                print(f"New message: {content}",
-                    file=outfile)
     return 0
 
 if __name__ == "__main__":

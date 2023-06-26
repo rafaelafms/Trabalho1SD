@@ -15,6 +15,7 @@ class ClientCli:
         ('subscribe', ['topic']),
         ('unsubscribe', ['topic']),
         ('topics', []),
+        ('refresh', []),
         ('exit', []),
         ('help', []),
     ]
