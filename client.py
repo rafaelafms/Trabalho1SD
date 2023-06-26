@@ -90,7 +90,7 @@ def handle_command(
 mail: list[Content] = []
 
 def callback(contents: list[Content]) -> None:
-    # print('callback:', contents)
+    print('callback:', contents)
     global mail
     for content in contents:
         mail.append(content)
@@ -98,9 +98,9 @@ def callback(contents: list[Content]) -> None:
 def main() -> int:
     infile = sys.stdin
     outfile = sys.stdout
+    id: UserId = input('Type client name: ')
     with create_conn(HOST, PORT) as conn:
         should_stop: bool = False
-        id: UserId = 'client'
         loginok: bool = \
             conn.root.login(id, callback)
         if loginok:

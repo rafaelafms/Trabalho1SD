@@ -115,7 +115,7 @@ class LimitedBuffer(Generic[T]):
             start_small = LimitedBuffer.MAX_LEN
         assert start_small is not None
         list_small: list[LimitedBuffer.Item[T]] = self.buf[start_small:]
-        list_big: list[LimitedBuffer.Item[T]] = self.buf[0:last_item.id]
+        list_big: list[LimitedBuffer.Item[T]] = self.buf[0:self.last_idx]
         return list_small + list_big
 
 BufferType: TypeAlias = LimitedBuffer
@@ -132,7 +132,6 @@ class ME(BrokerService):
     all_topics: list[Topic] = field(default_factory=list)
     all_contents: BufferType[Content] = field(default_factory=Buffer)
     all_subs: Subscribers = field(default_factory=dict)
-    all_loggedin: dict[Ip, UserId] = field(default_factory=dict)
     notify_queue: list[Topic] = field(default_factory=list)
 
     def create_topic(self, id: UserId, topic: Topic) -> Topic:
@@ -145,34 +144,28 @@ class ME(BrokerService):
 
     def on_disconnect(self, conn: rpyc.Connection) -> None:
         log('Someone disconnected')
-        ip = 3
-            # magia(conn)
-        if ip in self.all_loggedin.keys():
-            id = self.all_loggedin[ip]
-            assert id in self.all_subs.keys()
-            self.all_subs[id].callback = None
-            self.all_loggedin.pop(ip)
-        else:
-            pass
 
     def exposed_login(self, id: UserId, callback: FnNotify) -> bool:
-        if id in self.all_loggedin.values():
-            return False
+        log(f"login: '{id}'")
+        if id not in self.all_subs.keys():
+            log(f"> new client: '{id}'")
+            self.all_subs[id] = SubsState(
+                callback = callback
+            )
         else:
-            ip = 3
-                # magia(self)
-            assert ip not in self.all_loggedin.keys()
-            self.all_loggedin[ip] = id
-            if id not in self.all_subs:
-                self.all_subs[id] = SubsState(
-                    callback = callback
-                )
+            user_callback = self.all_subs[id].callback
+            if user_callback is None:
+                log(f"> '{id}' already logged out")
             else:
-                assert self.all_subs[id].callback is None
-                self.all_subs[id].callback = callback
-                for topic in self.all_topics:
-                    self.notify_one(self.all_subs[id], topic)
-            return True
+                if ME.test_callback(user_callback):
+                    log(f"> '{id}' is connected")
+                    return False
+                else:
+                    log(f"> '{id}' just disconnected")
+            self.all_subs[id].callback = callback
+            for topic in self.all_topics:
+                self.notify_one(self.all_subs[id], topic)
+        return True
 
     def exposed_list_topics(self) -> list[Topic]:
         return self.all_topics
@@ -230,17 +223,35 @@ class ME(BrokerService):
             # Nothing to do
             pass
         else:
-            if topic in subs_state.subscribed.keys():
-                list_to_send: list[Content] = []
-                index = subs_state.subscribed[topic]
-                slice = self.all_contents[index:]
-                assert isinstance(slice, list)
-                for content in slice:
-                    if content.topic == topic:
-                        log(f"> append: {content}")
-                        list_to_send.append(content)
-                subs_state.callback(list_to_send)
-                subs_state.subscribed[topic] = len(self.all_contents)
+            if ME.test_callback(subs_state.callback):
+                if topic in subs_state.subscribed.keys():
+                    list_to_send: list[Content] = []
+                    index = subs_state.subscribed[topic]
+                    slice = self.all_contents[index:]
+                    assert isinstance(slice, list)
+                    for content in slice:
+                        if content.topic == topic:
+                            log(f"> append: {content}")
+                            list_to_send.append(content)
+                    subs_state.callback(list_to_send)
+                    subs_state.subscribed[topic] = len(self.all_contents)
+            else:
+                log(f"> someone was disconnected")
+                subs_state.callback = None
+
+    @staticmethod
+    def test_callback(callback: FnNotify) -> bool:
+        log('test_callback')
+        ok: bool = False
+        try:
+            log('> test_callback: try')
+            callback([])
+            log('> test_callback: callback([])')
+            ok = True
+        except:
+            log('> test_callback: except')
+            pass
+        return ok
 
 def notify(server_data: ME) -> None:
     queue: list[Topic] = server_data.notify_queue
