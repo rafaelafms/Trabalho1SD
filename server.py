@@ -209,7 +209,7 @@ class ME(BrokerService):
             log(f"> subscribe_to: after {subs_state.subscribed}")
             return True
 
-    def exposed_unsubscribe(self, id: UserId, topic: Topic) -> bool:
+    def exposed_unsubscribe_to(self, id: UserId, topic: Topic) -> bool:
         log(f"unsubscribe: '{id}' '{topic}'")
         subscribed =  self.all_subs[id].subscribed
         if topic in subscribed.keys():

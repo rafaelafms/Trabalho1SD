@@ -63,7 +63,7 @@ def handle_command(
     elif parsed.cmd_name == 'unsubscribe':
         assert len(parsed.args) == 1
         ok = \
-            conn.root.unsubscribe(id, parsed.args[0])
+            conn.root.unsubscribe_to(id, parsed.args[0])
         if ok:
             print('=> Ok!',
                 file=output)
