@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import rpyc # type: ignore
 
 import threading
+import time
 import sys
 
 PORT = 5000
@@ -57,6 +58,7 @@ class ME(BrokerService):
     all_contents: BufferType[Content] = Buffer()
     all_subs: Subscribers = dict()
     logged_in: dict[rpyc.Connection, UserId] = dict()
+    notify_queue: list[Topic] = list()
 
     def create_topic(self, id: UserId, topic: Topic) -> Topic:
         if topic not in self.all_topics:
@@ -73,7 +75,8 @@ class ME(BrokerService):
         log(f"> conn: {self._conn}")
         assert self._conn == conn
         if self._conn in ME.logged_in.keys():
-            ME.logged_in.pop(self._conn)
+            id: UserId = ME.logged_in.pop(self._conn)
+            ME.all_subs[id].callback = None
         else:
             # Nothing to do
             pass
@@ -94,11 +97,9 @@ class ME(BrokerService):
             else:
                 assert ME.all_subs[id].callback is None
                 ME.all_subs[id].callback = callback
-                self.notify_conn()
             return True
 
     def exposed_list_topics(self) -> list[Topic]:
-        self.notify_conn()
         return ME.all_topics
 
     def exposed_publish(self, author: UserId, topic: Topic, data: str) -> bool:
@@ -106,7 +107,6 @@ class ME(BrokerService):
         log(f"> conn: {self._conn}")
         if topic not in ME.all_topics:
             log(f"> Topic not valid '{topic}' by '{author}'")
-            self.notify_conn()
             return False
         else:
             content: Content = Content(
@@ -117,7 +117,7 @@ class ME(BrokerService):
             ME.all_contents.append(content)
             log(f"> Publishing {content}")
             log_contents(ME.all_contents)
-            self.notify_conn()
+            ME.notify_queue.append(topic)
             return True
 
     def exposed_subscribe_to(self, id: UserId, topic: Topic) -> bool:
@@ -125,7 +125,6 @@ class ME(BrokerService):
         log(f"> conn: {self._conn}")
         if topic not in ME.all_topics:
             log(f"> subscribe_to: return False")
-            self.notify_conn()
             return False
         else:
             assert id in ME.all_subs.keys()
@@ -134,7 +133,6 @@ class ME(BrokerService):
             log(f"> subscribe_to: before {subs_state.subscribed}")
             subs_state.subscribed[topic] = next_index
             log(f"> subscribe_to: after {subs_state.subscribed}")
-            self.notify_conn()
             return True
 
     def exposed_unsubscribe_to(self, id: UserId, topic: Topic) -> bool:
@@ -146,14 +144,16 @@ class ME(BrokerService):
             subscribed.pop(topic)
         else:
             log(f"> unsubscribe invalid")
-        self.notify_conn()
         return True
 
-    def notify_conn(self) -> None:
-        id = ME.logged_in[self._conn]
-        subs_state = ME.all_subs[id]
-        for topic in subs_state.subscribed.keys():
-            ME.notify_one(subs_state, topic)
+    @staticmethod
+    def notify_all(topic: Topic) -> None:
+        log(f"notify all: '{topic}'")
+        for subs_state in ME.all_subs.values():
+            try:
+                ME.notify_one(subs_state, topic)
+            finally:
+                continue
 
     @staticmethod
     def notify_one(subs_state: SubsState, topic: Topic) -> None:
@@ -175,6 +175,17 @@ class ME(BrokerService):
                     subs_state.callback(list_to_send)
                     subs_state.subscribed[topic] = len(ME.all_contents)
 
+def notify() -> None:
+    while True:
+        while len(ME.notify_queue) > 0:
+            topic: Topic = ME.notify_queue[0]
+            log(f"thread notify '{topic}'")
+            ME.notify_all(topic)
+            log(f"thread notify dequeue")
+            assert topic == ME.notify_queue.pop(0)
+            log(f"thread notify: is sleeping")
+        time.sleep(1)
+
 def main() -> int:
     from rpyc.utils.server import ThreadedServer # type: ignore
     ME.all_topics = [
@@ -192,8 +203,14 @@ def main() -> int:
         threading.Thread(
             target=srv.start,
         )
+    notify_thread: threading.Thread = \
+        threading.Thread(
+            target=notify,
+        )
     server_thread.start()
+    notify_thread.start()
     server_thread.join()
+    notify_thread.join()
     return 0
 
 if __name__ == "__main__":

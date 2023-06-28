@@ -131,6 +131,7 @@ def main() -> int:
     outfile = sys.stdout
     id: UserId = input('Type client name: ')
     with create_conn(HOST, PORT) as conn:
+        rpyc.BgServingThread(conn)
         should_stop: bool = False
         loginok: bool = \
             conn.root.login(id, callback)
