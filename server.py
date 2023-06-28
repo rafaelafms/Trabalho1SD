@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-from typing import Optional, TypeAlias
+from interface import UserId, Topic, Content, FnNotify, BrokerService, IS_NEW_PYTHON
+
+if IS_NEW_PYTHON:
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
+
+from typing import Optional, TYPE_CHECKING
 from dataclasses import dataclass, field
 
 import rpyc # type: ignore
 
 import threading
 import sys
-
-from interface import UserId, Topic, Content, FnNotify, BrokerService
 
 PORT = 5000
 
@@ -28,12 +33,21 @@ def log_contents(
 
 IndexNext: TypeAlias = int
 
-@dataclass(slots=True)
-class SubsState:
-    callback: Optional[FnNotify] = None
-    subscribed: dict[Topic, IndexNext] = field(default_factory=dict)
+if IS_NEW_PYTHON:
+    @dataclass(slots=True)
+    class SubsState:
+        callback: Optional[FnNotify] = None
+        subscribed: dict[Topic, IndexNext] = field(default_factory=dict)
+elif not TYPE_CHECKING:
+    @dataclass()
+    class SubsState:
+        callback: Optional[FnNotify] = None
+        subscribed: dict[Topic, IndexNext] = field(default_factory=dict)
 
-Subscribers: TypeAlias = dict[UserId, SubsState]
+if IS_NEW_PYTHON:
+    Subscribers: TypeAlias = dict[UserId, SubsState]
+elif not TYPE_CHECKING:
+    Subscribers: TypeAlias = dict
 
 BufferType: TypeAlias = list
 Buffer = list

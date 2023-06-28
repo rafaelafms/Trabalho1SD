@@ -1,12 +1,17 @@
-from typing import Optional, TextIO, Any
+from typing import Optional, TextIO, Any, TYPE_CHECKING
 from dataclasses import dataclass, field
 
 import rpyc # type: ignore
 
 import sys
 
-from interface import UserId, Content
 from cli import ClientCli, ParsedCommand
+from interface import UserId, Content, IS_NEW_PYTHON
+
+if IS_NEW_PYTHON:
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
 
 HOST = 'localhost'
 PORT = 5000
@@ -14,19 +19,34 @@ PORT = 5000
 def log(s: str) -> None:
     print(s, file=sys.stderr)
 
-@dataclass(eq=False, kw_only=True, slots=True)
-class ConnMan:
-    host: str
-    port: int
-    conn: rpyc.Connection = field(init=False)
+if IS_NEW_PYTHON:
+    @dataclass(eq=False, kw_only=True, slots=True)
+    class ConnMan:
+        host: str
+        port: int
+        conn: rpyc.Connection = field(init=False)
 
-    def __enter__(self) -> rpyc.Connection:
-        self.conn = rpyc.connect(self.host, self.port)
-        log(f"connected to service: {'conn.root.get_service_name()'}")
-        return self.conn
+        def __enter__(self) -> rpyc.Connection:
+            self.conn = rpyc.connect(self.host, self.port)
+            log(f"connected to service: {'conn.root.get_service_name()'}")
+            return self.conn
 
-    def __exit__(self, *args: Any) -> None:
-        self.conn.close()
+        def __exit__(self, *args: Any) -> None:
+            self.conn.close()
+elif not TYPE_CHECKING:
+    @dataclass(eq=False)
+    class ConnMan:
+        host: str
+        port: int
+        conn: rpyc.Connection = field(init=False)
+
+        def __enter__(self) -> rpyc.Connection:
+            self.conn = rpyc.connect(self.host, self.port)
+            log(f"connected to service: {'conn.root.get_service_name()'}")
+            return self.conn
+
+        def __exit__(self, *args: Any) -> None:
+            self.conn.close()
 
 def create_conn(
         host: str,
@@ -93,9 +113,14 @@ def handle_command(
         assert False, f"Unhandled command: '{parsed.cmd_name}'"
     return False
 
-mail: list[Content] = []
+if IS_NEW_PYTHON:
+    ContentList: TypeAlias = list[Content]
+elif not TYPE_CHECKING:
+    ContentList: TypeAlias = list
 
-def callback(contents: list[Content]) -> None:
+mail: ContentList = []
+
+def callback(contents: ContentList) -> None:
     print('callback:', contents)
     global mail
     for content in contents:

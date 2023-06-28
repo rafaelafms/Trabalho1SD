@@ -1,16 +1,38 @@
-from typing import NamedTuple, Optional, Tuple, TypeAlias, TextIO
+from typing import NamedTuple, Optional, Tuple, TextIO, TYPE_CHECKING
 from dataclasses import dataclass, field
 
 import socket
 
-Command: TypeAlias = Tuple[str, list[str]]
-ParsedCommand = NamedTuple('ParsedCommand', [
-    ('cmd_name', str),
-    ('args', list[str]),
-])
+import sys
+IS_NEW_PYTHON: bool = sys.version_info >= (3, 8)
+if IS_NEW_PYTHON:
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
+
+
+if IS_NEW_PYTHON:
+    Command: TypeAlias = Tuple[str, list[str]]
+    CommandList: TypeAlias = list[Command]
+    ArgList: TypeAlias = list[str]
+elif not TYPE_CHECKING:
+    Command: TypeAlias = Tuple
+    CommandList: TypeAlias = list
+    ArgList: TypeAlias = list
+
+if IS_NEW_PYTHON:
+    ParsedCommand = NamedTuple('ParsedCommand', [
+        ('cmd_name', str),
+        ('args', list[str]),
+    ])
+elif not TYPE_CHECKING:
+    ParsedCommand = NamedTuple('ParsedCommand', [
+        ('cmd_name', str),
+        ('args', list),
+    ])
 
 class ClientCli:
-    CMDS: list[Command] = [
+    CMDS: CommandList = [
         ('publish', ['topic', 'data']),
         ('subscribe', ['topic']),
         ('unsubscribe', ['topic']),
@@ -58,7 +80,7 @@ class Private:
         return Private.trim_right(Private.trim_left(s))
 
     @staticmethod
-    def help(cmds: list[Command], file: TextIO) -> None:
+    def help(cmds: CommandList, file: TextIO) -> None:
         if len(cmds) > 0:
             print(
                 'Available commands:',
@@ -96,7 +118,7 @@ class Private:
 
     @staticmethod
     def command(
-                cmds: list[Command],
+                cmds: CommandList,
                 input: TextIO,
                 file: TextIO,
                 ) -> Optional[int]:
@@ -114,10 +136,10 @@ class Private:
             return None
 
     @staticmethod
-    def args(full_cmd: Command, input: TextIO, file: TextIO) -> list[str]:
+    def args(full_cmd: Command, input: TextIO, file: TextIO) -> ArgList:
         cmd: str = full_cmd[0]
-        cmd_args: list[str] = full_cmd[1]
-        ret_list: list[str] = []
+        cmd_args: ArgList = full_cmd[1]
+        ret_list: ArgList = []
         for cmd_arg in cmd_args:
             loop: bool = True
             while loop:
