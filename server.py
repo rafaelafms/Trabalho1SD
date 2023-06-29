@@ -97,6 +97,8 @@ class ME(BrokerService):
             else:
                 assert ME.all_subs[id].callback is None
                 ME.all_subs[id].callback = callback
+                for topic in ME.all_topics:
+                    ME.notify_one(ME.all_subs[id], topic)
             return True
 
     def exposed_list_topics(self) -> list[Topic]:
@@ -153,7 +155,7 @@ class ME(BrokerService):
             try:
                 ME.notify_one(subs_state, topic)
             finally:
-                continue
+                pass
 
     @staticmethod
     def notify_one(subs_state: SubsState, topic: Topic) -> None:
