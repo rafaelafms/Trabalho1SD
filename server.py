@@ -16,7 +16,8 @@ import threading
 import time
 import sys
 
-PORT = 5000
+PORT = 10001
+lock: threading.Lock = threading.Lock()
 
 GLOBAL_LOG: bool = True
 
@@ -76,7 +77,8 @@ class ME(BrokerService):
         assert self._conn == conn
         if self._conn in ME.logged_in.keys():
             id: UserId = ME.logged_in.pop(self._conn)
-            ME.all_subs[id].callback = None
+            with lock:
+                ME.all_subs[id].callback = None
         else:
             # Nothing to do
             pass
@@ -89,17 +91,18 @@ class ME(BrokerService):
             return False
         else:
             ME.logged_in[self._conn] = id
-            if id not in ME.all_subs.keys():
-                log(f"> new client: '{id}'")
-                ME.all_subs[id] = SubsState(
-                    callback = callback
-                )
-            else:
-                assert ME.all_subs[id].callback is None
-                ME.all_subs[id].callback = callback
-                for topic in ME.all_topics:
-                    ME.notify_one(ME.all_subs[id], topic)
-            return True
+            with lock:
+                if id not in ME.all_subs.keys():
+                    log(f"> new client: '{id}'")
+                    ME.all_subs[id] = SubsState(
+                        callback = callback
+                    )
+                else:
+                    assert ME.all_subs[id].callback is None
+                    ME.all_subs[id].callback = callback
+                    for topic in ME.all_topics:
+                        ME.notify_one(ME.all_subs[id], topic)
+                return True
 
     def exposed_list_topics(self) -> list[Topic]:
         return ME.all_topics
@@ -125,37 +128,40 @@ class ME(BrokerService):
     def exposed_subscribe_to(self, id: UserId, topic: Topic) -> bool:
         log(f"subscribe_to: '{id}' '{topic}'")
         log(f"> conn: {self._conn}")
-        if topic not in ME.all_topics:
-            log(f"> subscribe_to: return False")
-            return False
-        else:
-            assert id in ME.all_subs.keys()
-            subs_state: SubsState = ME.all_subs[id]
-            next_index: int = len(ME.all_contents)
-            log(f"> subscribe_to: before {subs_state.subscribed}")
-            subs_state.subscribed[topic] = next_index
-            log(f"> subscribe_to: after {subs_state.subscribed}")
-            return True
+        with lock:
+            if topic not in ME.all_topics:
+                log(f"> subscribe_to: return False")
+                return False
+            else:
+                assert id in ME.all_subs.keys()
+                subs_state: SubsState = ME.all_subs[id]
+                next_index: int = len(ME.all_contents)
+                log(f"> subscribe_to: before {subs_state.subscribed}")
+                subs_state.subscribed[topic] = next_index
+                log(f"> subscribe_to: after {subs_state.subscribed}")
+                return True
 
     def exposed_unsubscribe_to(self, id: UserId, topic: Topic) -> bool:
         log(f"unsubscribe: '{id}' '{topic}'")
         log(f"> conn: {self._conn}")
-        subscribed =  ME.all_subs[id].subscribed
-        if topic in subscribed.keys():
-            log(f"> unsubscribing to '{topic}'")
-            subscribed.pop(topic)
-        else:
-            log(f"> unsubscribe invalid")
+        with lock:
+            subscribed =  ME.all_subs[id].subscribed
+            if topic in subscribed.keys():
+                log(f"> unsubscribing to '{topic}'")
+                subscribed.pop(topic)
+            else:
+                log(f"> unsubscribe invalid")
         return True
 
     @staticmethod
     def notify_all(topic: Topic) -> None:
         log(f"notify all: '{topic}'")
-        for subs_state in ME.all_subs.values():
-            try:
-                ME.notify_one(subs_state, topic)
-            finally:
-                pass
+        with lock:
+            for subs_state in ME.all_subs.values():
+                try:
+                    ME.notify_one(subs_state, topic)
+                finally:
+                    pass
 
     @staticmethod
     def notify_one(subs_state: SubsState, topic: Topic) -> None:
@@ -179,14 +185,17 @@ class ME(BrokerService):
 
 def notify() -> None:
     while True:
-        while len(ME.notify_queue) > 0:
-            topic: Topic = ME.notify_queue[0]
-            log(f"thread notify '{topic}'")
-            ME.notify_all(topic)
-            log(f"thread notify dequeue")
-            assert topic == ME.notify_queue.pop(0)
+        try:
+            while len(ME.notify_queue) > 0:
+                topic: Topic = ME.notify_queue[0]
+                log(f"thread notify '{topic}'")
+                ME.notify_all(topic)
+                log(f"thread notify dequeue")
+                assert topic == ME.notify_queue.pop(0)
             log(f"thread notify: is sleeping")
-        time.sleep(1)
+            time.sleep(1)
+        except:
+            pass
 
 def main() -> int:
     from rpyc.utils.server import ThreadedServer # type: ignore
@@ -199,7 +208,8 @@ def main() -> int:
     ]
     srv = ThreadedServer(
         ME,
-        port = PORT
+        port = PORT,
+        protocol_config={ 'allow_public_attrs': True },
     )
     server_thread: threading.Thread = \
         threading.Thread(
